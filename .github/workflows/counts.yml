@@ -1,0 +1,37 @@
+name: Atualizar placar
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # a cada 5 min (mínimo do GitHub)
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths-ignore: ['placar-data.json']
+permissions:
+  contents: write
+concurrency:
+  group: placar
+  cancel-in-progress: true
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm i @vercel/blob@2.5.0 --no-save --no-audit --no-fund
+      - name: Contar inscrições
+        run: node update-counts.mjs
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+      - name: Commitar contagem
+        run: |
+          git config user.name "placar-bot"
+          git config user.email "bot@vaitecnologia.com.br"
+          git add placar-data.json
+          if git diff --staged --quiet; then
+            echo "sem mudança na contagem"
+          else
+            git commit -m "placar: atualiza contagem [skip ci]"
+            git push
+          fi
