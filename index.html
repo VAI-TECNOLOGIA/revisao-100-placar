@@ -157,7 +157,7 @@ function apply(rev, obr){
 
 async function tick(){
   try{
-    const r=await fetch('placar-data.json?t='+Date.now(),{cache:'no-store'});
+    const r=await fetch('https://raw.githubusercontent.com/VAI-TECNOLOGIA/revisao-100-placar/data/placar-data.json?t='+Date.now(),{cache:'no-store'});
     const j=await r.json();
     apply(j.revisionistas||0, j.obreiros||0);
   }catch(e){ /* mantém último estado */ }
@@ -166,7 +166,7 @@ async function tick(){
 // modo demo p/ preview: ?demo=REV,OBR
 const dm=new URLSearchParams(location.search).get('demo');
 if(dm){ const [r,o]=dm.split(',').map(x=>parseInt(x)||0); setTimeout(()=>apply(r,o||0),300); }
-else { tick(); setInterval(tick, 8000); }
+else { tick(); setInterval(tick, 20000); }
 
 // faíscas
 (function(){
