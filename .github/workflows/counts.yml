@@ -1,37 +1,35 @@
 name: Atualizar placar
 on:
   schedule:
-    - cron: '*/5 * * * *'   # a cada 5 min (mínimo do GitHub)
+    - cron: '*/5 * * * *'
   workflow_dispatch: {}
-  push:
-    branches: [main]
-    paths-ignore: ['placar-data.json']
 permissions:
   contents: write
-concurrency:
-  group: placar
-  cancel-in-progress: true
 jobs:
   update:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: data
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
       - run: npm i @vercel/blob@2.5.0 --no-save --no-audit --no-fund
-      - name: Contar inscrições
-        run: node update-counts.mjs
+      - name: Contar
         env:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
-      - name: Commitar contagem
         run: |
-          git config user.name "placar-bot"
-          git config user.email "bot@vaitecnologia.com.br"
+          node --input-type=module -e '
+          import { list } from "@vercel/blob"; import fs from "fs";
+          const T=process.env.BLOB_READ_WRITE_TOKEN; let rev=0,obr=0,cur;
+          do{ const p=await list({prefix:"inscricoes/",token:T,cursor:cur,limit:1000});
+          const its=await Promise.all(p.blobs.filter(b=>b.pathname.endsWith(".json")).map(async b=>{const r=await fetch(b.url,{headers:{Authorization:"Bearer "+T}});return r.ok?r.json().catch(()=>null):null;}));
+          for(const it of its){if(!it)continue;if(it.tipo==="revisionista")rev++;else if(it.tipo==="obreiro")obr++;}
+          cur=p.hasMore?p.cursor:undefined;}while(cur);
+          fs.writeFileSync("placar-data.json",JSON.stringify({revisionistas:rev,obreiros:obr,total:rev+obr,metaRev:100,metaObr:100}));'
+      - name: Publicar
+        run: |
+          git config user.name "placar-bot"; git config user.email "bot@vaitecnologia.com.br"
           git add placar-data.json
-          if git diff --staged --quiet; then
-            echo "sem mudança na contagem"
-          else
-            git commit -m "placar: atualiza contagem [skip ci]"
-            git push
-          fi
+          git diff --staged --quiet || (git commit -m "placar: contagem [skip ci]" && git push origin HEAD:data)
