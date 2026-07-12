@@ -17,13 +17,14 @@ jobs:
       - name: Contar (com deduplicação)
         env:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
-        run: node update-counts.mjs
+        run: |
+          node update-counts.mjs
+          cp placar-data.json /tmp/placar-data.json
       - name: Publicar na branch data
         run: |
           git config user.name "placar-bot"; git config user.email "bot@vaitecnologia.com.br"
           git fetch origin data
-          git stash -u
-          git checkout data
-          git stash pop || true
+          git checkout -f data
+          cp /tmp/placar-data.json placar-data.json
           git add placar-data.json
           git diff --staged --quiet || (git commit -m "placar: contagem deduplicada [skip ci]" && git push origin HEAD:data)
