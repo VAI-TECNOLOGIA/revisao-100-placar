@@ -149,7 +149,7 @@ function apply(rev, obr){
     animateNumber(num,faltam);
     sub.innerHTML='<b>'+rev+'</b> já foram contados · a conta não fecha sem eles';
   }
-  obrEl.innerHTML='<b>'+obr+'</b> / 100';
+  obrEl.innerHTML = obr>=100 ? '<b>'+obr+'</b> / 100 · completo' : '<b>'+obr+'</b> / 100';
   // grade DECRESCENTE: acesas = quantas faltam; some uma a cada inscrição. No fim, enche em festa.
   const lit = rev>=100 ? 100 : faltam;
   if(lit!==shownLit){ lightStrokes(lit); shownLit=lit; }
