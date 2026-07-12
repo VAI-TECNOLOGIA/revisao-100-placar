@@ -1,61 +1,51 @@
-// Lê o Vercel Blob (inscrições) e escreve placar-data.json com a contagem DEDUPLICADA.
-// Regra: cada pessoa conta 1 vez, mesmo que tenha enviado o formulário mais de uma vez.
-// Chave de deduplicação (em ordem de prioridade): telefone > e-mail > nome+tipo.
+// Lê o Vercel Blob (inscrições) e escreve placar-data.json com a contagem EXATA do sistema.
+// Regra oficial (idêntica ao lib/store.js da LP): 1 inscrição = 1 id único;
+// cada gravação cria uma nova VERSÃO do mesmo id (sufixo aleatório) e a mais recente vale.
 import { list } from '@vercel/blob';
 import { writeFileSync } from 'fs';
 
 const TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
 const PREFIX = 'inscricoes/';
 
-const normPhone = (v) => {
-  if (!v) return '';
-  let d = String(v).replace(/\D/g, '');
-  if (d.startsWith('55') && d.length > 11) d = d.slice(2); // remove DDI
-  d = d.replace(/^0+/, '');
-  // normaliza celular com/sem 9º dígito: DDD + últimos 8
-  if (d.length === 11) d = d.slice(0, 2) + d.slice(3);
-  return d;
-};
-const normText = (v) => String(v || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+// id-base a partir do pathname (com ou sem sufixo aleatório). ids são base36 (sem '-').
+const baseId = p => p.slice(PREFIX.length).replace(/\.json$/, '').split('-')[0];
+// timestamp do PRÓPRIO registro (o uploadedAt do Vercel só tem granularidade de segundo)
+const ts = r => new Date((r && (r.atualizadoEm || r.criadoEm)) || 0).getTime();
 
-const keyOf = (it) => {
-  const tel = normPhone(it.telefone || it.whatsapp || it.celular || it.fone || it.phone);
-  if (tel.length >= 8) return 'tel:' + tel;
-  const email = normText(it.email || it.mail);
-  if (email.includes('@')) return 'email:' + email;
-  const nome = normText(it.nome || it.name);
-  if (nome) return 'nome:' + nome + '|' + normText(it.tipo);
-  return null; // sem identificador: não conta (evita lixo)
-};
+async function readBlob(url) {
+  const r = await fetch(url, { headers: { Authorization: 'Bearer ' + TOKEN } });
+  if (!r.ok) return null;
+  try { return await r.json(); } catch { return null; }
+}
 
-const seen = new Map(); // key -> tipo
-let cursor, lidos = 0, invalidos = 0;
+// 1) agrupa todas as versões por id
+const groups = new Map();
+let cursor, arquivos = 0;
 do {
   const page = await list({ prefix: PREFIX, token: TOKEN, cursor, limit: 1000 });
-  const items = await Promise.all(
-    page.blobs.filter(b => b.pathname.endsWith('.json')).map(async b => {
-      const r = await fetch(b.url, { headers: { Authorization: 'Bearer ' + TOKEN } });
-      if (!r.ok) return null;
-      try { return await r.json(); } catch { return null; }
-    })
-  );
-  for (const it of items) {
-    lidos++;
-    if (!it) { invalidos++; continue; }
-    const tipo = normText(it.tipo);
-    if (tipo !== 'revisionista' && tipo !== 'obreiro') { invalidos++; continue; }
-    const k = keyOf(it);
-    if (!k) { invalidos++; continue; }
-    if (!seen.has(k)) seen.set(k, tipo); // 1ª inscrição vale; repetições são ignoradas
+  for (const b of page.blobs) {
+    if (!b.pathname.endsWith('.json')) continue;
+    arquivos++;
+    const id = baseId(b.pathname);
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push(b);
   }
   cursor = page.hasMore ? page.cursor : undefined;
 } while (cursor);
 
-let rev = 0, obr = 0;
-for (const tipo of seen.values()) tipo === 'revisionista' ? rev++ : obr++;
+// 2) para cada id, lê a versão mais recente
+const items = (await Promise.all([...groups.values()].map(async g => {
+  if (g.length === 1) return readBlob(g[0].url);
+  const contents = (await Promise.all(g.map(b => readBlob(b.url)))).filter(Boolean);
+  if (!contents.length) return null;
+  return contents.reduce((a, b) => (ts(b) > ts(a) ? b : a));
+}))).filter(Boolean);
 
-const dup = lidos - invalidos - seen.size;
+// 3) conta por tipo
+const rev = items.filter(i => i.tipo === 'revisionista').length;
+const obr = items.filter(i => i.tipo === 'obreiro').length;
+
 const data = { revisionistas: rev, obreiros: obr, total: rev + obr, metaRev: 100, metaObr: 100, ts: new Date().toISOString() };
 writeFileSync('placar-data.json', JSON.stringify(data));
 console.log('contagem:', JSON.stringify(data));
-console.log(`auditoria: ${lidos} arquivos lidos · ${dup} duplicados removidos · ${invalidos} invalidos ignorados`);
+console.log(`auditoria: ${arquivos} arquivos no Blob · ${groups.size} inscrições únicas (ids) · ${arquivos - groups.size} versões antigas`);
