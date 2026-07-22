@@ -41,9 +41,10 @@ const items = (await Promise.all([...groups.values()].map(async g => {
   return contents.reduce((a, b) => (ts(b) > ts(a) ? b : a));
 }))).filter(Boolean);
 
-// 3) conta por tipo
-const rev = items.filter(i => i.tipo === 'revisionista').length;
-const obr = items.filter(i => i.tipo === 'obreiro').length;
+// 3) conta por tipo (lista de espera não conta no placar)
+const efetivos = items.filter(i => !i.listaEspera);
+const rev = efetivos.filter(i => i.tipo === 'revisionista').length;
+const obr = efetivos.filter(i => i.tipo === 'obreiro').length;
 
 const data = { revisionistas: rev, obreiros: obr, total: rev + obr, metaRev: 100, metaObr: 100, ts: new Date().toISOString() };
 writeFileSync('placar-data.json', JSON.stringify(data));
